@@ -22,25 +22,32 @@ func (c *cache) newHTTPServer(addr string) {
 	}
 }
 
+func writeJSONError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	fmt.Fprintf(w, `{"error": "%s"}`, message)
+}
+
 func (c *cache) deleteHandler(w http.ResponseWriter, r *http.Request) {
 	groupName := chi.URLParam(r, "groupName")
 	key := chi.URLParam(r, "key")
 	if groupName == "" || key == "" {
-		http.Error(w, fmt.Sprintf("missing group name(%s) or key(%s)", groupName, key), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("missing group name(%s) or key(%s)", groupName, key))
 		return
 	}
 
-	g := c.GetGroup(groupName)
-	if g != nil {
-		g.(*group).mtx.Lock()
-		delete(g.(*group).data, key)
-		g.(*group).mtx.Unlock()
-		w.WriteHeader(http.StatusOK)
-		w.Write(fmt.Appendf(nil, "key '%s' deleted successfully from gorup '%s'", key, groupName))
-	} else {
-		w.WriteHeader(http.StatusOK)
-		w.Write(fmt.Appendf(nil, "not found group '%s', but deletion of key '%s' is considered successful", groupName, key))
+	g, err := c.getGroupByName(groupName)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, err.Error())
+		return
 	}
+
+	g.mtx.Lock()
+	delete(g.data, key)
+	g.mtx.Unlock()
+
+	w.WriteHeader(http.StatusOK)
+	w.Write(fmt.Appendf(nil, "key '%s' deleted successfully from group '%s'", key, groupName))
 }
 
 func (c *cache) getGroupHandler(w http.ResponseWriter, r *http.Request) {
@@ -73,18 +80,19 @@ func (c *cache) getHandler(w http.ResponseWriter, r *http.Request) {
 	key := chi.URLParam(r, "key")
 
 	if groupName == "" || key == "" {
-		http.Error(w, fmt.Sprintf("missing group name(%s) or key(%s)", groupName, key), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("missing group name(%s) or key(%s)", groupName, key))
 		return
 	}
 
-	g := c.GetGroup(groupName)
-	if g == nil {
-		http.Error(w, fmt.Sprintf("not found group name '%s'", groupName), http.StatusNotFound)
+	g, err := c.getGroupByName(groupName)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, err.Error())
 		return
 	}
+
 	val, err := g.Get(context.Background(), key)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("cache miss. key '%s' in group name '%s'", key, groupName), http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("cache miss. key '%s' in group name '%s'", key, groupName))
 		return
 	}
 	w.WriteHeader(http.StatusOK)

@@ -49,15 +49,20 @@ func (g *group) get(ctx context.Context, key string) (any, error) {
 	if !hit {
 		return nil, fmt.Errorf("%s not found", key)
 	}
-
-	if data.ttlTime.Before(time.Now()) {
+	// Check if the data is expired
+	//ttltime := 15초 time now 20초
+	now := time.Now()
+	if now.After(data.ttlTime) {
 		g.mtx.Lock()
 		delete(g.data, key)
 		g.mtx.Unlock()
 		return nil, errors.New("cache expired")
 	}
 
-	data.ttlTime = time.Now()
+	g.mtx.Lock()
+	data.ttlTime = time.Now().Add(g.defttl)
+	g.data[key] = data
+	g.mtx.Unlock()
 
 	return data.val, nil
 }
@@ -70,7 +75,6 @@ func (g *group) Get(ctx context.Context, key string) (any, error) {
 		return nil, err
 	}
 	return g.get(ctx, key)
-
 }
 
 // Sink

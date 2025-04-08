@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 )
@@ -141,9 +142,21 @@ func (c *cache) NewGroupWithTTL(name string, getter Getter, ttl time.Duration) G
 
 func (c *cache) GetGroup(name string) Group {
 	c.mtx.RLock()
-	g := c.group[name]
+	g, ok := c.group[name]
+	if !ok {
+		c.mtx.RUnlock()
+		return nil
+	}
 	c.mtx.RUnlock()
 	return g
+}
+
+func (c *cache) getGroupByName(name string) (*group, error) {
+	g := c.GetGroup(name)
+	if g == nil {
+		return nil, fmt.Errorf("group '%s' not found", name)
+	}
+	return g.(*group), nil
 }
 
 func (c *cache) ttlCleanUp() {
@@ -181,13 +194,7 @@ func (c *cache) watchHeadlessService() {
 
 			// 삭제된 노드 확인
 			for _, oldPeer := range c.peerAddresses {
-				found := false
-				for _, newPeer := range newPeers {
-					if newPeer == oldPeer {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(newPeers, oldPeer)
 				if !found {
 					fmt.Printf("node %s has been removed.\n", oldPeer)
 				}
@@ -195,13 +202,7 @@ func (c *cache) watchHeadlessService() {
 
 			// 추가된 노드 확인
 			for _, newPeer := range newPeers {
-				found := false
-				for _, oldPeer := range c.peerAddresses {
-					if oldPeer == newPeer {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(c.peerAddresses, newPeer)
 				if !found {
 					fmt.Printf("node %s has been added.\n", newPeer)
 				}
